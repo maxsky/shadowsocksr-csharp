@@ -272,8 +272,7 @@ namespace Shadowsocks.View
                     CreateMenuItem("Gen custom QRCode...", new EventHandler(this.showURLFromQRCode)),
                     CreateMenuItem("Reset password...", new EventHandler(this.ResetPasswordItem_Click)),
                     new MenuItem("-"),
-                    CreateMenuItem("About...", new EventHandler(this.AboutItem_Click)),
-                    CreateMenuItem("Donate...", new EventHandler(this.DonateItem_Click)),
+                    CreateMenuItem("About...", new EventHandler(this.AboutItem_Click))
                 }),
                 CreateMenuItem("Quit", new EventHandler(this.Quit_Click))
             });
@@ -905,12 +904,12 @@ namespace Shadowsocks.View
 
         private void OpenWiki_Click(object sender, EventArgs e)
         {
-            Process.Start("https://github.com/breakwa11/shadowsocks-rss/wiki");
+            Process.Start("https://github.com/maxsky/shadowsocksr-csharp#shadowsocksr-for-windows");
         }
 
         private void FeedbackItem_Click(object sender, EventArgs e)
         {
-            Process.Start("https://github.com/shadowsocksr/shadowsocksr-csharp/issues/new");
+            Process.Start("https://github.com/maxsky/shadowsocksr-csharp#shadowsocksr-for-windows");
         }
 
         private void ResetPasswordItem_Click(object sender, EventArgs e)
@@ -922,13 +921,9 @@ namespace Shadowsocks.View
 
         private void AboutItem_Click(object sender, EventArgs e)
         {
-            Process.Start("https://breakwa11.github.io");
+            Process.Start("https://github.com/maxsky/shadowsocksr-csharp");
         }
 
-        private void DonateItem_Click(object sender, EventArgs e)
-        {
-            ShowBalloonTip(I18N.GetString("Donate"), I18N.GetString("Please contract to breakwa11 to get more infomation"), ToolTipIcon.Info, 10000);
-        }
 
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(System.Windows.Forms.Keys vKey);
@@ -1078,7 +1073,8 @@ namespace Shadowsocks.View
 
         private void CheckUpdate_Click(object sender, EventArgs e)
         {
-            updateChecker.CheckUpdate(controller.GetCurrentConfiguration());
+            //updateChecker.CheckUpdate(controller.GetCurrentConfiguration());
+            ShowBalloonTip(I18N.GetString("No Update Info"), I18N.GetString("Maybe one day, there is a big god will bring us a new FUCK GFW's program."), ToolTipIcon.Info, 10000);
         }
 
         private void CheckNodeUpdate_Click(object sender, EventArgs e)

@@ -111,6 +111,7 @@ Proxy Port=本地端口
 Reconnect Times=重连次数
  Timeout=连接超时
 TTL=空闲断开秒数
+GFWList update=GFWList列表更新
 
 OK=确定
 Cancel=取消
