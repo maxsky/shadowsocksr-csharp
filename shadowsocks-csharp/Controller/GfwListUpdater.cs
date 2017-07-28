@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Net;
 using System.IO;
-using Shadowsocks.Properties;
-using SimpleJson;
-using Shadowsocks.Util;
 using Shadowsocks.Model;
 
 namespace Shadowsocks.Controller
