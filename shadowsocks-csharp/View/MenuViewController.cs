@@ -1040,22 +1040,22 @@ namespace Shadowsocks.View
 
         private void UpdatePACFromLanIPListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://github.com/breakwa11/gfw_whitelist/raw/master/ssr/ss_lanip.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_lanip.pac");
         }
 
         private void UpdatePACFromCNWhiteListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://github.com/breakwa11/gfw_whitelist/raw/master/ssr/ss_white.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_white.pac");
         }
 
         private void UpdatePACFromCNOnlyListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://github.com/breakwa11/gfw_whitelist/raw/master/ssr/ss_r_white.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_r_white.pac");
         }
 
         private void UpdatePACFromCNIPListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://github.com/breakwa11/gfw_whitelist/raw/master/ssr/ss_cnip.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_cnip.pac");
         }
 
         private void EditUserRuleFileForGFWListItem_Click(object sender, EventArgs e)

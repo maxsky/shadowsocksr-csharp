@@ -11,9 +11,9 @@ namespace Shadowsocks.Controller
     {
         private const string GFWLIST_URL = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt";
 
-        private const string GFWLIST_BACKUP_URL = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt";
+        private const string GFWLIST_BACKUP_URL = "https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/gfwlist.txt";
 
-        private const string GFWLIST_TEMPLATE_URL = "https://github.com/breakwa11/gfw_whitelist/raw/master/ss_gfw.pac";
+        private const string GFWLIST_TEMPLATE_URL = "https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ss_gfw.pac";
 
         private static string PAC_FILE = PACServer.PAC_FILE;
 
