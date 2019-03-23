@@ -1,15 +1,16 @@
-﻿using System;
+﻿using Shadowsocks.Model;
+using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Net;
 using System.IO;
-using Shadowsocks.Model;
+using System.Net;
+using System.Text;
 
 namespace Shadowsocks.Controller
 {
     public class GFWListUpdater
     {
-        private const string GFWLIST_URL = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt";
+
+        private string gfwList_URL;
 
         private const string GFWLIST_BACKUP_URL = "https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/gfwlist.txt";
 
@@ -82,7 +83,7 @@ namespace Shadowsocks.Controller
                 {
                     string local = File.ReadAllText(USER_RULE_FILE, Encoding.UTF8);
                     string[] rules = local.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach(string rule in rules)
+                    foreach (string rule in rules)
                     {
                         if (rule.StartsWith("!") || rule.StartsWith("["))
                             continue;
@@ -121,7 +122,7 @@ namespace Shadowsocks.Controller
                 if (Error != null)
                 {
                     WebClient http = sender as WebClient;
-                    if (http.BaseAddress.StartsWith(GFWLIST_URL))
+                    if (http.BaseAddress.StartsWith(gfwList_URL))
                     {
                         http.BaseAddress = GFWLIST_BACKUP_URL;
                         http.DownloadStringAsync(new Uri(GFWLIST_BACKUP_URL + "?rnd=" + Util.Utils.RandUInt32().ToString()));
@@ -178,6 +179,7 @@ namespace Shadowsocks.Controller
             if (gfwlist_template == null)
             {
                 lastConfig = config;
+                gfwList_URL = config.GFWUpdateURL;
                 WebClient http = new WebClient();
                 WebProxy proxy = new WebProxy(IPAddress.Loopback.ToString(), config.localPort);
                 if (!string.IsNullOrEmpty(config.authPass))
@@ -197,9 +199,9 @@ namespace Shadowsocks.Controller
                     proxy.Credentials = new NetworkCredential(config.authUser, config.authPass);
                 }
                 http.Proxy = proxy;
-                http.BaseAddress = GFWLIST_URL;
+                http.BaseAddress = gfwList_URL;
                 http.DownloadStringCompleted += http_DownloadStringCompleted;
-                http.DownloadStringAsync(new Uri(GFWLIST_URL + "?rnd=" + Util.Utils.RandUInt32().ToString()));
+                http.DownloadStringAsync(new Uri(gfwList_URL + "?rnd=" + Util.Utils.RandUInt32().ToString()));
             }
         }
 

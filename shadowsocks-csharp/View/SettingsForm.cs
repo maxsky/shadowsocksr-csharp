@@ -1,13 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Text;
-using System.Windows.Forms;
-using Shadowsocks.Controller;
+﻿using Shadowsocks.Controller;
 using Shadowsocks.Model;
 using Shadowsocks.Properties;
+using System;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace Shadowsocks.View
 {
@@ -150,6 +146,8 @@ namespace Shadowsocks.View
                 _modifiedConfiguration.authUser = TextAuthUser.Text;
                 _modifiedConfiguration.authPass = TextAuthPass.Text;
 
+                _modifiedConfiguration.GFWUpdateURL = GFWUpdateURL.Text;
+
                 _modifiedConfiguration.autoBan = CheckAutoBan.Checked;
 
                 return ret;
@@ -181,7 +179,7 @@ namespace Shadowsocks.View
             NumTTL.Value = _modifiedConfiguration.TTL;
             NumTimeout.Value = _modifiedConfiguration.connectTimeout;
             DNSText.Text = _modifiedConfiguration.dnsServer;
-
+            GFWUpdateURL.Text = _modifiedConfiguration.GFWUpdateURL;
             CheckSockProxy.Checked = _modifiedConfiguration.proxyEnable;
             checkBoxPacProxy.Checked = _modifiedConfiguration.pacDirectGoProxy;
             comboProxyType.SelectedIndex = _modifiedConfiguration.proxyType;
@@ -219,6 +217,7 @@ namespace Shadowsocks.View
 
         private void buttonDefault_Click(object sender, EventArgs e)
         {
+            DNSText.Text = "8.8.4.4";
             if (CheckSockProxy.Checked)
             {
                 NumReconnect.Value = 4;
@@ -232,5 +231,6 @@ namespace Shadowsocks.View
                 NumTTL.Value = 60;
             }
         }
+
     }
 }

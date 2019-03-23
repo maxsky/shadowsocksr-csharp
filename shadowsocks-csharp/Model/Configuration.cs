@@ -66,8 +66,8 @@ namespace Shadowsocks.Model
     [Serializable]
     public class ServerSubscribe
     {
-        private static string DEFAULT_FEED_URL = "https://raw.githubusercontent.com/breakwa11/breakwa11.github.io/master/free/freenodeplain.txt";
-        private static string OLD_DEFAULT_FEED_URL = "https://raw.githubusercontent.com/breakwa11/breakwa11.github.io/master/free/freenode.txt";
+        private static string DEFAULT_FEED_URL = "https://raw.githubusercontent.com/shadowsocksr-rm/breakwa11.github.io/master/free/freenodeplain.txt";
+        //private static string OLD_DEFAULT_FEED_URL = "https://raw.githubusercontent.com/shadowsocksr-rm/breakwa11.github.io/master/free/freenode.txt";
 
         public string URL = DEFAULT_FEED_URL;
         public string Group;
@@ -109,6 +109,8 @@ namespace Shadowsocks.Model
 
         public string authUser;
         public string authPass;
+
+        public string GFWUpdateURL;
 
         public bool autoBan;
         public bool sameHostForSameTarget;
@@ -384,6 +386,8 @@ namespace Shadowsocks.Model
             connectTimeout = 5;
             dnsServer = "";
 
+            GFWUpdateURL = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt";
+
             randomAlgorithm = (int)ServerSelectStrategy.SelectAlgorithm.LowException;
             random = true;
             sysProxyMode = (int)ProxyMode.Global;
@@ -425,6 +429,7 @@ namespace Shadowsocks.Model
             proxyUserAgent = config.proxyUserAgent;
             authUser = config.authUser;
             authPass = config.authPass;
+            GFWUpdateURL = config.GFWUpdateURL;
             autoBan = config.autoBan;
             sameHostForSameTarget = config.sameHostForSameTarget;
             keepVisitTime = config.keepVisitTime;

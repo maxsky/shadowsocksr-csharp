@@ -13,8 +13,7 @@ namespace Shadowsocks.Controller
 {
     public class UpdateFreeNode
     {
-        // https://raw.githubusercontent.com/breakwa11/breakwa11.github.io/master/free/freenodeplain.txt
-        private const string UpdateURL = "";
+        private const string UpdateURL = "https://raw.githubusercontent.com/shadowsocksr-rm/breakwa11.github.io/master/free/freenodeplain.txt";
 
         public event EventHandler NewFreeNodeFound;
         public string FreeNodeResult;
