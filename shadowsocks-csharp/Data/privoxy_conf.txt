@@ -4,4 +4,3 @@ activity-animation 0
 forward-socks5 / 127.0.0.1:__SOCKS_PORT__ .
 hide-console
 __BYPASS_ACTION__
-

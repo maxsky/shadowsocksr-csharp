@@ -7,57 +7,13 @@ using Shadowsocks.Encryption;
 
 namespace Shadowsocks.Obfs
 {
-    class xorshift128plus
-    {
-        protected UInt64 v0, v1;
-        protected int init_loop;
-
-        public xorshift128plus(int init_loop_ = 4)
-        {
-            v0 = v1 = 0;
-            init_loop = init_loop_;
-        }
-
-        public UInt64 next()
-        {
-            UInt64 x = v0;
-            UInt64 y = v1;
-            v0 = y;
-            x ^= x << 23;
-            x ^= (y ^ (x >> 17) ^ (y >> 26));
-            v1 = x;
-            return x + y;
-        }
-
-        public void init_from_bin(byte[] bytes)
-        {
-            byte[] fill_bytes = new byte[16];
-            Array.Copy(bytes, fill_bytes, 16);
-            v0 = BitConverter.ToUInt64(fill_bytes, 0);
-            v1 = BitConverter.ToUInt64(fill_bytes, 8);
-        }
-
-        public void init_from_bin(byte[] bytes, int datalength)
-        {
-            byte[] fill_bytes = new byte[16];
-            Array.Copy(bytes, fill_bytes, 16);
-            BitConverter.GetBytes((ushort)datalength).CopyTo(fill_bytes, 0);
-            v0 = BitConverter.ToUInt64(fill_bytes, 0);
-            v1 = BitConverter.ToUInt64(fill_bytes, 8);
-            for (int i = 0; i < init_loop; ++i)
-            {
-                next();
-            }
-        }
-    }
-
-    class AuthChain_a : VerifySimpleBase
+    class AuthAkarin : VerifySimpleBase
     {
         protected class AuthDataAesChain : AuthData
         {
         }
 
-        public AuthChain_a(string method)
+        public AuthAkarin(string method)
             : base(method)
         {
             has_sent_header = false;
@@ -71,7 +27,7 @@ namespace Shadowsocks.Obfs
         }
 
         private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_a", new int[]{1, 0, 1}},
+            {"auth_akarin_rand", new int[]{1, 0, 1}},
         };
 
         protected bool has_sent_header;
@@ -87,9 +43,12 @@ namespace Shadowsocks.Obfs
         protected int last_datalength;
         protected byte[] last_client_hash;
         protected byte[] last_server_hash;
-        protected xorshift128plus random_client = new xorshift128plus();
-        protected xorshift128plus random_server = new xorshift128plus();
+        protected xorshift128plus random_client = new xorshift128plus(0);
+        protected xorshift128plus random_server = new xorshift128plus(0);
         protected IEncryptor encryptor;
+        protected int send_tcp_mss = 2000;
+        protected int recv_tcp_mss = 2000;
+        protected List<int> send_back_cmd = new List<int>();
 
         protected const int overhead = 4;
 
@@ -137,9 +96,14 @@ namespace Shadowsocks.Obfs
             return new MbedTLS.HMAC_MD5(key);
         }
 
-        protected virtual int GetRandLen(int datalength, xorshift128plus random, byte[] last_hash)
+        protected virtual int GetSendRandLen(int datalength, xorshift128plus random, byte[] last_hash)
         {
-            if (datalength > 1440)
+            if (datalength + Server.overhead > send_tcp_mss)
+            {
+                random.init_from_bin(last_hash, datalength);
+                return (int)(random.next() % 521);
+            }
+            if (datalength >= 1440 || datalength + Server.overhead == recv_tcp_mss)
                 return 0;
             random.init_from_bin(last_hash, datalength);
             if (datalength > 1300)
@@ -148,7 +112,28 @@ namespace Shadowsocks.Obfs
                 return (int)(random.next() % 127);
             if (datalength > 400)
                 return (int)(random.next() % 521);
-            return (int)(random.next() % 1021);
+            return (int)(random.next() % (ulong)(send_tcp_mss - datalength - Server.overhead));
+            //return (int)(random.next() % 1021);
+        }
+
+        protected virtual int GetRecvRandLen(int datalength, xorshift128plus random, byte[] last_hash)
+        {
+            if (datalength + Server.overhead > recv_tcp_mss)
+            {
+                random.init_from_bin(last_hash, datalength);
+                return (int)(random.next() % 521);
+            }
+            if (datalength >= 1440 || datalength + Server.overhead == recv_tcp_mss)
+                return 0;
+            random.init_from_bin(last_hash, datalength);
+            if (datalength > 1300)
+                return (int)(random.next() % 31);
+            if (datalength > 900)
+                return (int)(random.next() % 127);
+            if (datalength > 400)
+                return (int)(random.next() % 521);
+            return (int)(random.next() % (ulong)(recv_tcp_mss - datalength - Server.overhead));
+            //return (int)(random.next() % 1021);
         }
 
         protected int UdpGetRandLen(xorshift128plus random, byte[] last_hash)
@@ -157,45 +142,52 @@ namespace Shadowsocks.Obfs
             return (int)(random.next() % 127);
         }
 
-        protected int GetRandStartPos(int rand_len, xorshift128plus random)
+        protected int GetSendRandLen(int datalength)
         {
-            if (rand_len > 0)
-                return (int)(random.next() % 8589934609 % (ulong)rand_len);
-            return 0;
-        }
-
-        protected int GetRandLen(int datalength)
-        {
-            return GetRandLen(datalength, random_client, last_client_hash);
+            return GetSendRandLen(datalength, random_client, last_client_hash);
         }
 
         public void PackData(byte[] data, int datalength, byte[] outdata, out int outlength)
         {
-            int rand_len = GetRandLen(datalength);
-            outlength = rand_len + datalength + 2;
-            outdata[0] = (byte)(datalength ^ last_client_hash[14]);
-            outdata[1] = (byte)((datalength >> 8) ^ last_client_hash[15]);
+            int cmdlen = 0;
+            int rand_len;
+            int start_pos = 2;
+            if (send_back_cmd.Count > 0)
+            {
+                cmdlen += 2;
+                //TODO
+                send_tcp_mss = recv_tcp_mss;
+                rand_len = GetSendRandLen(datalength + cmdlen);
+                outlength = rand_len + datalength + cmdlen + 2;
+                start_pos += cmdlen;
+                outdata[0] = (byte)(send_back_cmd[0] ^ last_client_hash[14]);
+                outdata[1] = (byte)((send_back_cmd[0] >> 8) ^ last_client_hash[15]);
+                outdata[2] = (byte)(datalength ^ last_client_hash[12]);
+                outdata[3] = (byte)((datalength >> 8) ^ last_client_hash[13]);
+                send_back_cmd.Clear();
+            }
+            else
+            {
+                rand_len = GetSendRandLen(datalength);
+                outlength = rand_len + datalength + 2;
+                outdata[0] = (byte)(datalength ^ last_client_hash[14]);
+                outdata[1] = (byte)((datalength >> 8) ^ last_client_hash[15]);
+            }
             {
                 byte[] rnd_data = new byte[rand_len];
                 random.NextBytes(rnd_data);
-                encryptor.Encrypt(data, datalength, data, out datalength);
                 if (datalength > 0)
                 {
+                    encryptor.Encrypt(data, datalength, data, out datalength);
+                    Array.Copy(data, 0, outdata, start_pos, datalength);
                     if (rand_len > 0)
                     {
-                        int start_pos = GetRandStartPos(rand_len, random_client);
-                        Array.Copy(data, 0, outdata, 2 + start_pos, datalength);
-                        Array.Copy(rnd_data, 0, outdata, 2, start_pos);
-                        Array.Copy(rnd_data, start_pos, outdata, 2 + start_pos + datalength, rand_len - start_pos);
-                    }
-                    else
-                    {
-                        Array.Copy(data, 0, outdata, 2, datalength);
+                        rnd_data.CopyTo(outdata, start_pos + datalength);
                     }
                 }
                 else
                 {
-                    rnd_data.CopyTo(outdata, 2);
+                    rnd_data.CopyTo(outdata, start_pos);
                 }
             }
 
@@ -211,11 +203,6 @@ namespace Shadowsocks.Obfs
                 Array.Copy(md5data, 0, outdata, outlength, 2);
                 outlength += 2;
             }
-        }
-
-        public virtual void OnInitAuthData(UInt64 unixTimestamp)
-        {
-
         }
 
         public void PackAuthData(byte[] data, int datalength, byte[] outdata, out int outlength)
@@ -250,10 +237,13 @@ namespace Shadowsocks.Obfs
             UInt64 utc_time_second = (UInt64)Math.Floor(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds);
             UInt32 utc_time = (UInt32)(utc_time_second);
             Array.Copy(BitConverter.GetBytes(utc_time), 0, encrypt, 0, 4);
-            OnInitAuthData(utc_time_second);
 
             encrypt[12] = (byte)(Server.overhead);
             encrypt[13] = (byte)(Server.overhead >> 8);
+            send_tcp_mss = 1024; //random.Next(1024) + 400;
+            recv_tcp_mss = send_tcp_mss;
+            encrypt[14] = (byte)(send_tcp_mss);
+            encrypt[15] = (byte)(send_tcp_mss >> 8);
 
             // first 12 bytes
             {
@@ -311,7 +301,16 @@ namespace Shadowsocks.Obfs
                 Array.Copy(md5data, 0, encrypt, 20, 4);
             }
             encrypt.CopyTo(outdata, 12);
-            encryptor = EncryptorFactory.GetEncryptor("rc4", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(last_client_hash, 0, 16), false);
+            encryptor = EncryptorFactory.GetEncryptor("chacha20", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(last_client_hash, 0, 16), false);
+            {
+                byte[] iv = new byte[8];
+                Array.Copy(last_client_hash, iv, 8);
+                encryptor.SetIV(iv);
+            }
+            {
+                int pack_outlength;
+                encryptor.Decrypt(last_server_hash, 8, outdata, out pack_outlength);
+            }
 
             // combine first chunk
             {
@@ -434,7 +433,7 @@ namespace Shadowsocks.Obfs
                 MbedTLS.HMAC md5 = CreateHMAC(key);
 
                 int data_len = ((recv_buf[1] ^ last_server_hash[15]) << 8) + (recv_buf[0] ^ last_server_hash[14]);
-                int rand_len = GetRandLen(data_len, random_server, last_server_hash);
+                int rand_len = GetRecvRandLen(data_len, random_server, last_server_hash);
                 int len = rand_len + data_len;
                 if (len >= 4096)
                 {
@@ -452,15 +451,7 @@ namespace Shadowsocks.Obfs
                 }
 
                 {
-                    int pos;
-                    if (data_len > 0 && rand_len > 0)
-                    {
-                        pos = 2 + GetRandStartPos(rand_len, random_server);
-                    }
-                    else
-                    {
-                        pos = 2;
-                    }
+                    int pos = 2;
                     int outlen = data_len;
                     Util.Utils.SetArrayMinSize2(ref outdata, outlength + outlen);
                     byte[] data = new byte[outlen];
@@ -469,9 +460,10 @@ namespace Shadowsocks.Obfs
                     last_server_hash = md5data;
                     if (recv_id == 1)
                     {
-                        Server.tcp_mss = data[0] | (data[1] << 8);
+                        Server.tcp_mss = recv_tcp_mss = data[0] | (data[1] << 8);
                         pos = 2;
                         outlen -= 2;
+                        send_back_cmd.Add(0xff00);
                     }
                     else
                     {
@@ -522,7 +514,12 @@ namespace Shadowsocks.Obfs
             byte[] rand_data = new byte[rand_len];
             random.NextBytes(rand_data);
             outlength = datalength + rand_len + 8;
-            encryptor = EncryptorFactory.GetEncryptor("rc4", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(md5data, 0, 16), false);
+            encryptor = EncryptorFactory.GetEncryptor("chacha20", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(md5data, 0, 16), false);
+            {
+                byte[] iv = new byte[8];
+                Array.Copy(Server.key, iv, 8);
+                encryptor.SetIV(iv);
+            }
             encryptor.Encrypt(plaindata, datalength, outdata, out datalength);
             rand_data.CopyTo(outdata, datalength);
             auth_data.CopyTo(outdata, outlength - 8);
@@ -558,22 +555,28 @@ namespace Shadowsocks.Obfs
             md5data = md5.ComputeHash(plaindata, datalength - 8, 7);
             int rand_len = UdpGetRandLen(random_server, md5data);
             outlength = datalength - rand_len - 8;
-            encryptor = EncryptorFactory.GetEncryptor("rc4", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(md5data, 0, 16), false);
+            encryptor = EncryptorFactory.GetEncryptor("chacha20", System.Convert.ToBase64String(user_key) + System.Convert.ToBase64String(md5data, 0, 16), false);
+            {
+                int temp;
+                byte[] iv = new byte[8];
+                Array.Copy(Server.key, iv, 8);
+                encryptor.Decrypt(iv, 8, plaindata, out temp);
+            }
             encryptor.Decrypt(plaindata, outlength, plaindata, out outlength);
             return plaindata;
         }
     }
 
-    class AuthChain_b : AuthChain_a
+    class AuthAkarin_spec_a : AuthAkarin
     {
-        public AuthChain_b(string method)
+        public AuthAkarin_spec_a(string method)
             : base(method)
         {
 
         }
 
         private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_b", new int[]{1, 0, 1}},
+            {"auth_akarin_spec_a", new int[]{1, 0, 1}},
         };
 
         protected int[] data_size_list = null;
@@ -589,9 +592,9 @@ namespace Shadowsocks.Obfs
             return _obfs;
         }
 
-        protected virtual void InitDataSizeList()
+        protected void InitDataSizeList()
         {
-            xorshift128plus random = new xorshift128plus();
+            xorshift128plus random = new xorshift128plus(0);
             random.init_from_bin(Server.key);
             int len = (int)(random.next() % 8 + 4);
             List<int> data_list = new List<int>();
@@ -642,9 +645,14 @@ namespace Shadowsocks.Obfs
             return low;
         }
 
-        protected override int GetRandLen(int datalength, xorshift128plus random, byte[] last_hash)
+        protected override int GetSendRandLen(int datalength, xorshift128plus random, byte[] last_hash)
         {
-            if (datalength >= 1440)
+            if (datalength + Server.overhead > send_tcp_mss)
+            {
+                random.init_from_bin(last_hash, datalength);
+                return (int)(random.next() % 521);
+            }
+            if (datalength >= 1440 || datalength + Server.overhead == recv_tcp_mss)
                 return 0;
             random.init_from_bin(last_hash, datalength);
 
@@ -674,269 +682,41 @@ namespace Shadowsocks.Obfs
             return (int)(random.next() % 1021);
         }
 
-    }
-
-    class AuthChain_c : AuthChain_b
-    {
-        public AuthChain_c(string method)
-            : base(method)
+        protected override int GetRecvRandLen(int datalength, xorshift128plus random, byte[] last_hash)
         {
-
-        }
-
-        private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_c", new int[]{1, 0, 1}},
-        };
-
-        protected int[] data_size_list0 = null;
-
-        public static new List<string> SupportedObfs()
-        {
-            return new List<string>(_obfs.Keys);
-        }
-
-        public override Dictionary<string, int[]> GetObfs()
-        {
-            return _obfs;
-        }
-
-        protected override void InitDataSizeList()
-        {
-            xorshift128plus random = new xorshift128plus();
-            random.init_from_bin(Server.key);
-            int len = (int)(random.next() % (8 + 16) + (4 + 8));
-            List<int> data_list = new List<int>();
-            for (int i = 0; i < len; ++i)
+            if (datalength + Server.overhead > recv_tcp_mss)
             {
-                data_list.Add((int)(random.next() % 2340 % 2040 % 1440));
+                random.init_from_bin(last_hash, datalength);
+                return (int)(random.next() % 521);
             }
-            data_list.Sort();
-            data_size_list0 = data_list.ToArray();
-        }
-
-        public override void SetServerInfo(ServerInfo serverInfo)
-        {
-            Server = serverInfo;
-            InitDataSizeList();
-        }
-
-        protected override int GetRandLen(int datalength, xorshift128plus random, byte[] last_hash)
-        {
-            int other_data_size = datalength + Server.overhead;
-
-            // 一定要在random使用前初始化，以保证服务器与客户端同步，保证包大小验证结果正确
+            if (datalength >= 1440 || datalength + Server.overhead == recv_tcp_mss)
+                return 0;
             random.init_from_bin(last_hash, datalength);
-            if (other_data_size >= data_size_list0[data_size_list0.Length - 1])
+
+            int pos = FindPos(data_size_list, datalength + Server.overhead);
+            int final_pos = pos + (int)(random.next() % (ulong)(data_size_list.Length));
+            if (final_pos < data_size_list.Length)
             {
-                if (datalength >= 1440)
-                    return 0;
-                if (datalength > 1300)
-                    return (int)(random.next() % 31);
-                if (datalength > 900)
-                    return (int)(random.next() % 127);
-                if (datalength > 400)
-                    return (int)(random.next() % 521);
-                return (int)(random.next() % 1021);
+                return data_size_list[final_pos] - datalength - Server.overhead;
             }
 
-            int pos = FindPos(data_size_list0, other_data_size);
-            int final_pos = pos + (int)(random.next() % (ulong)(data_size_list0.Length - pos));
-            return data_size_list0[final_pos] - other_data_size;
-        }
-
-    }
-
-    class AuthChain_d : AuthChain_c
-    {
-        public AuthChain_d(string method)
-            : base(method)
-        {
-
-        }
-
-        private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_d", new int[]{1, 0, 1}},
-        };
-
-        public static new List<string> SupportedObfs()
-        {
-            return new List<string>(_obfs.Keys);
-        }
-
-        public override Dictionary<string, int[]> GetObfs()
-        {
-            return _obfs;
-        }
-
-        protected void CheckAndPatchDataSize(List<int> data_list, xorshift128plus random)
-        {
-            if (data_list[data_list.Count - 1] < 1300 && data_list.Count < 64)
+            pos = FindPos(data_size_list2, datalength + Server.overhead);
+            final_pos = pos + (int)(random.next() % (ulong)(data_size_list2.Length));
+            if (final_pos < data_size_list2.Length)
             {
-                data_list.Add((int)(random.next() % 2340 % 2040 % 1440));
-                CheckAndPatchDataSize(data_list, random);
+                return data_size_list2[final_pos] - datalength - Server.overhead;
             }
-        }
-
-        protected override void InitDataSizeList()
-        {
-            xorshift128plus random = new xorshift128plus();
-            random.init_from_bin(Server.key);
-            int len = (int)(random.next() % (8 + 16) + (4 + 8));
-            List<int> data_list = new List<int>();
-            for (int i = 0; i < len; ++i)
-            {
-                data_list.Add((int)(random.next() % 2340 % 2040 % 1440));
-            }
-            data_list.Sort();
-            int old_len = data_list.Count;
-            CheckAndPatchDataSize(data_list, random);
-            if (old_len != data_list.Count)
-            {
-                data_list.Sort();
-            }
-            data_size_list0 = data_list.ToArray();
-        }
-
-        public override void SetServerInfo(ServerInfo serverInfo)
-        {
-            Server = serverInfo;
-            InitDataSizeList();
-        }
-
-        protected override int GetRandLen(int datalength, xorshift128plus random, byte[] last_hash)
-        {
-            int other_data_size = datalength + Server.overhead;
-
-            if (other_data_size >= data_size_list0[data_size_list0.Length - 1])
+            if (final_pos < pos + data_size_list2.Length - 1)
             {
                 return 0;
             }
-
-            random.init_from_bin(last_hash, datalength);
-            int pos = FindPos(data_size_list0, other_data_size);
-            int final_pos = pos + (int)(random.next() % (ulong)(data_size_list0.Length - pos));
-            return data_size_list0[final_pos] - other_data_size;
-        }
-
-    }
-
-    class AuthChain_e : AuthChain_d
-    {
-        public AuthChain_e(string method)
-            : base(method)
-        {
-
-        }
-
-        private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_e", new int[]{1, 0, 1}},
-        };
-
-        public static new List<string> SupportedObfs()
-        {
-            return new List<string>(_obfs.Keys);
-        }
-
-        public override Dictionary<string, int[]> GetObfs()
-        {
-            return _obfs;
-        }
-
-        protected override int GetRandLen(int datalength, xorshift128plus random, byte[] last_hash)
-        {
-            random.init_from_bin(last_hash, datalength);
-            int other_data_size = datalength + Server.overhead;
-
-            if (other_data_size >= data_size_list0[data_size_list0.Length - 1])
-            {
-                return 0;
-            }
-
-            int pos = FindPos(data_size_list0, other_data_size);
-            return data_size_list0[pos] - other_data_size;
-        }
-
-    }
-
-    class AuthChain_f : AuthChain_e
-    {
-        public AuthChain_f(string method)
-            : base(method)
-        {
-
-        }
-
-        private static Dictionary<string, int[]> _obfs = new Dictionary<string, int[]> {
-            {"auth_chain_f", new int[]{1, 0, 1}},
-        };
-
-        public static new List<string> SupportedObfs()
-        {
-            return new List<string>(_obfs.Keys);
-        }
-
-        public override Dictionary<string, int[]> GetObfs()
-        {
-            return _obfs;
-        }
-
-        protected UInt64 key_change_interval = 60 * 60 * 24;    // a day by second
-        protected UInt64 key_change_datetime_key;
-        protected List<byte> key_change_datetime_key_bytes = new List<byte>();
-
-        protected override void InitDataSizeList()
-        {
-            xorshift128plus random = new xorshift128plus();
-            byte[] newKey = new byte[Server.key.Length];
-            Server.key.CopyTo(newKey, 0);
-            for (int i = 0; i < 8; i++)
-            {
-                newKey[i] ^= key_change_datetime_key_bytes[i];
-            }
-            random.init_from_bin(newKey);
-            int len = (int)(random.next() % (8 + 16) + (4 + 8));
-            List<int> data_list = new List<int>();
-            for (int i = 0; i < len; ++i)
-            {
-                data_list.Add((int)(random.next() % 2340 % 2040 % 1440));
-            }
-            data_list.Sort();
-            int old_len = data_list.Count;
-            CheckAndPatchDataSize(data_list, random);
-            if (old_len != data_list.Count)
-            {
-                data_list.Sort();
-            }
-            data_size_list0 = data_list.ToArray();
-        }
-
-        public override void SetServerInfo(ServerInfo serverInfo)
-        {
-            Server = serverInfo;
-            string protocalParams = serverInfo.param;
-            if (protocalParams != "")
-            {
-                if (-1 != protocalParams.IndexOf("#", StringComparison.Ordinal))
-                {
-                    protocalParams = protocalParams.Split('#')[1];
-                }
-                UInt64 interval;
-                if (UInt64.TryParse(protocalParams, out interval))
-                {
-                    key_change_interval = interval;
-                }
-            }
-        }
-
-        public override void OnInitAuthData(UInt64 unixTimestamp)
-        {
-            key_change_datetime_key = unixTimestamp / key_change_interval;
-            for (int i = 7; i > -1; --i)
-            {
-                byte b = (byte)(key_change_datetime_key >> (8 * i) & 0xFF);
-                key_change_datetime_key_bytes.Add(b);
-            }
-            InitDataSizeList();
+            if (datalength > 1300)
+                return (int)(random.next() % 31);
+            if (datalength > 900)
+                return (int)(random.next() % 127);
+            if (datalength > 400)
+                return (int)(random.next() % 521);
+            return (int)(random.next() % 1021);
         }
 
     }

@@ -10,6 +10,8 @@ namespace Shadowsocks.Encryption
         const int CIPHER_SALSA20 = 1;
         const int CIPHER_CHACHA20 = 2;
         const int CIPHER_CHACHA20_IETF = 3;
+        const int CIPHER_XSALSA20 = 4 + 1;
+        const int CIPHER_XCHACHA20 = 4 + 2;
 
         const int SODIUM_BLOCK_SIZE = 64;
 
@@ -23,8 +25,8 @@ namespace Shadowsocks.Encryption
         private delegate void crypto_stream(byte[] c, byte[] m, ulong mlen, byte[] n, ulong ic, byte[] k);
         private crypto_stream encryptor_delegate;
 
-        public SodiumEncryptor(string method, string password)
-            : base(method, password)
+        public SodiumEncryptor(string method, string password, bool cache)
+            : base(method, password, cache)
         {
             InitKey(method, password);
             _encryptBuf = new byte[MAX_INPUT_SIZE + SODIUM_BLOCK_SIZE];
@@ -37,6 +39,12 @@ namespace Shadowsocks.Encryption
                 case CIPHER_CHACHA20:
                     encryptor_delegate = Sodium.crypto_stream_chacha20_xor_ic;
                     break;
+                case CIPHER_XSALSA20:
+                    encryptor_delegate = Sodium.crypto_stream_xsalsa20_xor_ic;
+                    break;
+                case CIPHER_XCHACHA20:
+                    encryptor_delegate = Sodium.crypto_stream_xchacha20_xor_ic;
+                    break;
                 case CIPHER_CHACHA20_IETF:
                     encryptor_delegate = crypto_stream_chacha20_ietf_xor_ic;
                     break;
@@ -46,6 +54,8 @@ namespace Shadowsocks.Encryption
         private static Dictionary<string, EncryptorInfo> _ciphers = new Dictionary<string, EncryptorInfo> {
                 {"salsa20", new EncryptorInfo(32, 8, true, CIPHER_SALSA20)},
                 {"chacha20", new EncryptorInfo(32, 8, true, CIPHER_CHACHA20)},
+                {"xsalsa20", new EncryptorInfo(32, 24, true, CIPHER_XSALSA20)},
+                {"xchacha20", new EncryptorInfo(32, 24, true, CIPHER_XCHACHA20)},
                 {"chacha20-ietf", new EncryptorInfo(32, 12, true, CIPHER_CHACHA20_IETF)},
         };
 

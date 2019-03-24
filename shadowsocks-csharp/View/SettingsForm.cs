@@ -1,9 +1,13 @@
-﻿using Shadowsocks.Controller;
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Text;
+using System.Windows.Forms;
+using Shadowsocks.Controller;
 using Shadowsocks.Model;
 using Shadowsocks.Properties;
-using System;
-using System.Drawing;
-using System.Windows.Forms;
 
 namespace Shadowsocks.View
 {
@@ -12,6 +16,7 @@ namespace Shadowsocks.View
         private ShadowsocksController controller;
         // this is a copy of configuration that we are working on
         private Configuration _modifiedConfiguration;
+        private Dictionary<int, string> _balanceIndexMap = new Dictionary<int, string>();
 
         public SettingsForm(ShadowsocksController controller)
         {
@@ -47,6 +52,7 @@ namespace Shadowsocks.View
             buttonDefault.Height = buttonDefault.Height * dpi_mul / 4;
             buttonDefault.Width = buttonDefault.Width * dpi_mul / 4;
             DNSText.Width = DNSText.Width * dpi_mul / 4;
+            LocalDNSText.Width = LocalDNSText.Width * dpi_mul / 4;
             NumReconnect.Width = NumReconnect.Width * dpi_mul / 4;
             NumTimeout.Width = NumTimeout.Width * dpi_mul / 4;
             NumTTL.Width = NumTTL.Width * dpi_mul / 4;
@@ -96,6 +102,7 @@ namespace Shadowsocks.View
             checkBalanceInGroup.Text = I18N.GetString("Balance in group");
             for (int i = 0; i < RandomComboBox.Items.Count; ++i)
             {
+                _balanceIndexMap[i] = RandomComboBox.Items[i].ToString();
                 RandomComboBox.Items[i] = I18N.GetString(RandomComboBox.Items[i].ToString());
             }
 
@@ -130,11 +137,12 @@ namespace Shadowsocks.View
                     MessageBox.Show(I18N.GetString("Failed to update registry"));
                 }
                 _modifiedConfiguration.random = checkRandom.Checked;
-                _modifiedConfiguration.randomAlgorithm = RandomComboBox.SelectedIndex;
+                _modifiedConfiguration.balanceAlgorithm = RandomComboBox.SelectedIndex >= 0 && RandomComboBox.SelectedIndex < _balanceIndexMap.Count ? _balanceIndexMap[RandomComboBox.SelectedIndex] : "OneByOne";
                 _modifiedConfiguration.randomInGroup = checkBalanceInGroup.Checked;
                 _modifiedConfiguration.TTL = Convert.ToInt32(NumTTL.Value);
                 _modifiedConfiguration.connectTimeout = Convert.ToInt32(NumTimeout.Value);
                 _modifiedConfiguration.dnsServer = DNSText.Text;
+                _modifiedConfiguration.localDnsServer = LocalDNSText.Text;
                 _modifiedConfiguration.proxyEnable = CheckSockProxy.Checked;
                 _modifiedConfiguration.pacDirectGoProxy = checkBoxPacProxy.Checked;
                 _modifiedConfiguration.proxyType = comboProxyType.SelectedIndex;
@@ -145,8 +153,8 @@ namespace Shadowsocks.View
                 _modifiedConfiguration.proxyUserAgent = TextUserAgent.Text;
                 _modifiedConfiguration.authUser = TextAuthUser.Text;
                 _modifiedConfiguration.authPass = TextAuthPass.Text;
-
-                _modifiedConfiguration.GFWUpdateURL = GFWUpdateURL.Text;
+				
+				 _modifiedConfiguration.GFWUpdateURL = GFWUpdateURL.Text;
 
                 _modifiedConfiguration.autoBan = CheckAutoBan.Checked;
 
@@ -167,19 +175,24 @@ namespace Shadowsocks.View
 
             checkAutoStartup.Checked = AutoStartup.Check();
             checkRandom.Checked = _modifiedConfiguration.random;
-            if (_modifiedConfiguration.randomAlgorithm >= 0 && _modifiedConfiguration.randomAlgorithm < RandomComboBox.Items.Count)
+            int selectedIndex = 0;
+            for (int i = 0; i < _balanceIndexMap.Count; ++i)
             {
-                RandomComboBox.SelectedIndex = _modifiedConfiguration.randomAlgorithm;
+                if (_modifiedConfiguration.balanceAlgorithm == _balanceIndexMap[i])
+                {
+                    selectedIndex = i;
+                    break;
+                }
             }
-            else
-            {
-                RandomComboBox.SelectedIndex = (int)ServerSelectStrategy.SelectAlgorithm.LowException;
-            }
+            RandomComboBox.SelectedIndex = selectedIndex;
             checkBalanceInGroup.Checked = _modifiedConfiguration.randomInGroup;
             NumTTL.Value = _modifiedConfiguration.TTL;
             NumTimeout.Value = _modifiedConfiguration.connectTimeout;
             DNSText.Text = _modifiedConfiguration.dnsServer;
-            GFWUpdateURL.Text = _modifiedConfiguration.GFWUpdateURL;
+            LocalDNSText.Text = _modifiedConfiguration.localDnsServer;
+			
+			GFWUpdateURL.Text = _modifiedConfiguration.GFWUpdateURL;
+
             CheckSockProxy.Checked = _modifiedConfiguration.proxyEnable;
             checkBoxPacProxy.Checked = _modifiedConfiguration.pacDirectGoProxy;
             comboProxyType.SelectedIndex = _modifiedConfiguration.proxyType;

@@ -18,6 +18,18 @@ using System.Text.RegularExpressions;
 
 namespace Shadowsocks.View
 {
+    public class EventParams
+    {
+        public object sender;
+        public EventArgs e;
+
+        public EventParams(object sender, EventArgs e)
+        {
+            this.sender = sender;
+            this.e = e;
+        }
+    }
+
     public class MenuViewController
     {
         // yes this is just a menu view controller
@@ -58,6 +70,12 @@ namespace Shadowsocks.View
         private string _urlToOpen;
         private System.Timers.Timer timerDelayCheckUpdate;
 
+        private bool configfrom_open = false;
+        private List<EventParams> eventList = new List<EventParams>();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = CharSet.Auto)]
+        extern static bool DestroyIcon(IntPtr handle);
+
         public MenuViewController(ShadowsocksController controller)
         {
             this.controller = controller;
@@ -91,12 +109,6 @@ namespace Shadowsocks.View
 
             LoadCurrentConfiguration();
 
-            Configuration cfg = controller.GetCurrentConfiguration();
-            if (cfg.isDefaultConfig() || cfg.nodeFeedAutoUpdate)
-            {
-                updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, !cfg.isDefaultConfig());
-            }
-
             timerDelayCheckUpdate = new System.Timers.Timer(1000.0 * 10);
             timerDelayCheckUpdate.Elapsed += timer_Elapsed;
             timerDelayCheckUpdate.Start();
@@ -106,16 +118,22 @@ namespace Shadowsocks.View
         {
             if (timerDelayCheckUpdate != null)
             {
-                if (timerDelayCheckUpdate.Interval <= 1000.0 * 30)
+                //if (timerDelayCheckUpdate.Interval <= 1000.0 * 30)
+                //{
+                //    timerDelayCheckUpdate.Interval = 1000.0 * 60 * 5;
+                //}
+                //else
                 {
-                    timerDelayCheckUpdate.Interval = 1000.0 * 60 * 5;
-                }
-                else
-                {
-                    timerDelayCheckUpdate.Interval = 1000.0 * 60 * 60 * 2;
+                    timerDelayCheckUpdate.Interval = 1000.0 * 60 * 60 * 6;
                 }
             }
             updateChecker.CheckUpdate(controller.GetCurrentConfiguration());
+
+            Configuration cfg = controller.GetCurrentConfiguration();
+            if (cfg.isDefaultConfig() || cfg.nodeFeedAutoUpdate)
+            {
+                updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, !cfg.isDefaultConfig(), false);
+            }
         }
 
         void controller_Errored(object sender, System.IO.ErrorEventArgs e)
@@ -125,7 +143,7 @@ namespace Shadowsocks.View
 
         private void UpdateTrayIcon()
         {
-            int dpi;
+            int dpi = 96;
             using (Graphics graphics = Graphics.FromHwnd(IntPtr.Zero))
             {
                 dpi = (int)graphics.DpiX;
@@ -137,10 +155,10 @@ namespace Shadowsocks.View
 
             try
             {
-                using (Bitmap icon = new Bitmap("icon.png"))
-                {
-                    _notifyIcon.Icon = Icon.FromHandle(icon.GetHicon());
-                }
+                Bitmap icon = new Bitmap("icon.png");
+                Icon newIcon = Icon.FromHandle(icon.GetHicon());
+                _notifyIcon.Icon = newIcon;
+                DestroyIcon(newIcon.Handle);
             }
             catch
             {
@@ -174,7 +192,7 @@ namespace Shadowsocks.View
                     mul_r = 0.4;
                 }
 
-                using (Bitmap iconCopy = new Bitmap(icon))
+                Bitmap iconCopy = new Bitmap(icon);
                 {
                     for (int x = 0; x < iconCopy.Width; x++)
                     {
@@ -188,14 +206,18 @@ namespace Shadowsocks.View
                                 ((byte)(color.B * mul_b))));
                         }
                     }
-                    _notifyIcon.Icon = Icon.FromHandle(iconCopy.GetHicon());
+                    Icon newIcon = Icon.FromHandle(iconCopy.GetHicon());
+                    _notifyIcon.Icon = newIcon;
+                    DestroyIcon(newIcon.Handle);
                 }
             }
 
             // we want to show more details but notify icon title is limited to 63 characters
             string text = (enabled ?
-                    I18N.GetString("System Proxy On: ") + (global ? I18N.GetString("Global") : I18N.GetString("PAC")) :
-                    String.Format(I18N.GetString("Running: Port {0}"), config.localPort))  // this feedback is very important because they need to know Shadowsocks is running
+                    (global ? I18N.GetString("Global") : I18N.GetString("PAC")) :
+                    I18N.GetString("Disable system proxy"))
+                    + "\r\n"
+                    + String.Format(I18N.GetString("Running: Port {0}"), config.localPort)  // this feedback is very important because they need to know Shadowsocks is running
                     ;
             _notifyIcon.Text = text.Substring(0, Math.Min(63, text.Length));
         }
@@ -333,6 +355,12 @@ namespace Shadowsocks.View
 
         void updateFreeNodeChecker_NewFreeNodeFound(object sender, EventArgs e)
         {
+            if (configfrom_open)
+            {
+                eventList.Add(new EventParams(sender, e));
+                return;
+            }
+            string lastGroup = null;
             int count = 0;
             if (!String.IsNullOrEmpty(updateFreeNodeChecker.FreeNodeResult))
             {
@@ -387,7 +415,6 @@ namespace Shadowsocks.View
                         if (!config.isDefaultConfig())
                             keep_selected_server = true;
                     }
-                    string lastGroup = null;
                     string curGroup = null;
                     foreach (string url in urls)
                     {
@@ -417,7 +444,7 @@ namespace Shadowsocks.View
                             break;
                         }
                     }
-                    if (lastGroup == null)
+                    if (String.IsNullOrEmpty(lastGroup))
                     {
                         lastGroup = curGroup;
                     }
@@ -449,6 +476,7 @@ namespace Shadowsocks.View
                     // import all, find difference
                     {
                         Dictionary<string, Server> old_servers = new Dictionary<string, Server>();
+                        Dictionary<string, Server> old_insert_servers = new Dictionary<string, Server>();
                         if (!String.IsNullOrEmpty(lastGroup))
                         {
                             for (int i = config.configs.Count - 1; i >= 0; --i)
@@ -465,20 +493,44 @@ namespace Shadowsocks.View
                             {
                                 Server server = new Server(url, curGroup);
                                 bool match = false;
-                                foreach (KeyValuePair<string, Server> pair in old_servers)
+                                if (!match)
                                 {
-                                    if (server.isMatchServer(pair.Value))
+                                    foreach (KeyValuePair<string, Server> pair in old_insert_servers)
                                     {
-                                        match = true;
-                                        old_servers.Remove(pair.Key);
-                                        pair.Value.CopyServerInfo(server);
-                                        ++count;
-                                        break;
+                                        if (server.isMatchServer(pair.Value))
+                                        {
+                                            match = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                old_insert_servers[server.id] = server;
+                                if (!match)
+                                {
+                                    foreach (KeyValuePair<string, Server> pair in old_servers)
+                                    {
+                                        if (server.isMatchServer(pair.Value))
+                                        {
+                                            match = true;
+                                            old_servers.Remove(pair.Key);
+                                            pair.Value.CopyServerInfo(server);
+                                            ++count;
+                                            break;
+                                        }
                                     }
                                 }
                                 if (!match)
                                 {
-                                    config.configs.Add(server);
+                                    int insert_index = config.configs.Count;
+                                    for (int index = config.configs.Count - 1; index >= 0; --index)
+                                    {
+                                        if (config.configs[index].group == curGroup)
+                                        {
+                                            insert_index = index + 1;
+                                            break;
+                                        }
+                                    }
+                                    config.configs.Insert(insert_index, server);
                                     ++count;
                                 }
                             }
@@ -529,19 +581,35 @@ namespace Shadowsocks.View
                     {
                         config.index = config.configs.Count - 1;
                     }
+                    if (count > 0)
+                    {
+                        for (int i = 0; i < config.serverSubscribes.Count; ++i)
+                        {
+                            if (config.serverSubscribes[i].URL == updateFreeNodeChecker.subscribeTask.URL)
+                            {
+                                config.serverSubscribes[i].LastUpdateTime = (UInt64)Math.Floor(DateTime.Now.Subtract(new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds);
+                            }
+                        }
+                    }
                     controller.SaveServersConfig(config);
-
                 }
             }
+            
             if (count > 0)
             {
-                ShowBalloonTip(I18N.GetString("Success"),
-                    I18N.GetString("Update subscribe SSR node success"), ToolTipIcon.Info, 10000);
+                if (updateFreeNodeChecker.noitify)
+                    ShowBalloonTip(I18N.GetString("Success"),
+                        String.Format(I18N.GetString("Update subscribe {0} success"), lastGroup), ToolTipIcon.Info, 10000);
             }
             else
             {
+                if (lastGroup == null)
+                {
+                    lastGroup = updateFreeNodeChecker.subscribeTask.Group;
+                    //lastGroup = updateSubscribeManager.LastGroup;
+                }
                 ShowBalloonTip(I18N.GetString("Error"),
-                    I18N.GetString("Update subscribe SSR node failure"), ToolTipIcon.Info, 10000);
+                    String.Format(I18N.GetString("Update subscribe {0} failure"), lastGroup), ToolTipIcon.Info, 10000);
             }
             if (updateSubscribeManager.Next())
             {
@@ -686,6 +754,7 @@ namespace Shadowsocks.View
             }
             else
             {
+                configfrom_open = true;
                 configForm = new ConfigForm(controller, updateChecker, addNode ? -1 : -2);
                 configForm.Show();
                 configForm.Activate();
@@ -702,6 +771,7 @@ namespace Shadowsocks.View
             }
             else
             {
+                configfrom_open = true;
                 configForm = new ConfigForm(controller, updateChecker, index);
                 configForm.Show();
                 configForm.Activate();
@@ -813,7 +883,16 @@ namespace Shadowsocks.View
         void configForm_FormClosed(object sender, FormClosedEventArgs e)
         {
             configForm = null;
+            configfrom_open = false;
             Util.Utils.ReleaseMemory();
+            if (eventList.Count > 0)
+            {
+                foreach (EventParams p in eventList)
+                {
+                    updateFreeNodeChecker_NewFreeNodeFound(p.sender, p.e);
+                }
+                eventList.Clear();
+            }
         }
 
         void settingsForm_FormClosed(object sender, FormClosedEventArgs e)
@@ -909,12 +988,12 @@ namespace Shadowsocks.View
 
         private void OpenWiki_Click(object sender, EventArgs e)
         {
-            Process.Start("https://github.com/shadowsocksr-rm/shadowsocks-rss/wiki");
+            Process.Start("https://github.com/shadowsocksrr/shadowsocks-rss/wiki");
         }
 
         private void FeedbackItem_Click(object sender, EventArgs e)
         {
-            Process.Start("https://github.com/shadowsocksr-rm/shadowsocksr-csharp/issues/new");
+            Process.Start("https://github.com/shadowsocksrr/shadowsocksr-csharp/issues/new");
         }
 
         private void ResetPasswordItem_Click(object sender, EventArgs e)
@@ -1051,22 +1130,22 @@ namespace Shadowsocks.View
 
         private void UpdatePACFromLanIPListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_lanip.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/shadowsocksrr/breakwa11.github.io/master/ssr/ss_lanip.pac");
         }
 
         private void UpdatePACFromCNWhiteListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_white.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/shadowsocksrr/breakwa11.github.io/master/ssr/ss_white.pac");
         }
 
         private void UpdatePACFromCNOnlyListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_r_white.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/shadowsocksrr/breakwa11.github.io/master/ssr/ss_white_r.pac");
         }
 
         private void UpdatePACFromCNIPListItem_Click(object sender, EventArgs e)
         {
-            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/breakwa11/gfw_whitelist/master/ssr/ss_cnip.pac");
+            controller.UpdatePACFromOnlinePac("https://raw.githubusercontent.com/shadowsocksrr/breakwa11.github.io/master/ssr/ss_cnip.pac");
         }
 
         private void EditUserRuleFileForGFWListItem_Click(object sender, EventArgs e)
@@ -1087,12 +1166,12 @@ namespace Shadowsocks.View
 
         private void CheckNodeUpdate_Click(object sender, EventArgs e)
         {
-            updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, true);
+            updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, true, true);
         }
 
         private void CheckNodeUpdateBypassProxy_Click(object sender, EventArgs e)
         {
-            updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, false);
+            updateSubscribeManager.CreateTask(controller.GetCurrentConfiguration(), updateFreeNodeChecker, -1, false, true);
         }
 
         private void ShowLogItem_Click(object sender, EventArgs e)

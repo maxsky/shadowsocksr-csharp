@@ -55,6 +55,30 @@ namespace Shadowsocks.Obfs
             {
                 _registeredObfs.Add(method, typeof(AuthChain_b));
             }
+            foreach (string method in AuthChain_c.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthChain_c));
+            }
+            foreach (string method in AuthChain_d.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthChain_d));
+            }
+            foreach (string method in AuthChain_e.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthChain_e));
+            }
+            foreach (string method in AuthChain_f.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthChain_f));
+            }
+            foreach (string method in AuthAkarin.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthAkarin));
+            }
+            foreach (string method in AuthAkarin_spec_a.SupportedObfs())
+            {
+                _registeredObfs.Add(method, typeof(AuthAkarin_spec_a));
+            }
         }
 
         public static IObfs GetObfs(string method)

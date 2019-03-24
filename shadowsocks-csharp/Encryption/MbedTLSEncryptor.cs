@@ -15,8 +15,8 @@ namespace Shadowsocks.Encryption
         private IntPtr _encryptCtx = IntPtr.Zero;
         private IntPtr _decryptCtx = IntPtr.Zero;
 
-        public MbedTLSEncryptor(string method, string password)
-            : base(method, password)
+        public MbedTLSEncryptor(string method, string password, bool cache)
+            : base(method, password, cache)
         {
         }
 
@@ -116,11 +116,6 @@ namespace Shadowsocks.Encryption
         {
             Dispose(true);
             GC.SuppressFinalize(this);
-        }
-
-        ~MbedTLSEncryptor()
-        {
-            Dispose(false);
         }
 
         protected virtual void Dispose(bool disposing)

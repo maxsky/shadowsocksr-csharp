@@ -13,20 +13,26 @@ namespace Shadowsocks.Controller
 {
     public class UpdateFreeNode
     {
-        private const string UpdateURL = "https://raw.githubusercontent.com/shadowsocksr-rm/breakwa11.github.io/master/free/freenodeplain.txt";
+        private const string UpdateURL = "https://raw.githubusercontent.com/shadowsocksrr/breakwa11.github.io/master/free/freenodeplain.txt";
 
         public event EventHandler NewFreeNodeFound;
         public string FreeNodeResult;
+        public ServerSubscribe subscribeTask;
+        public bool noitify;
 
         public const string Name = "ShadowsocksR";
 
-        public void CheckUpdate(Configuration config, string URL, bool use_proxy)
+        public void CheckUpdate(Configuration config, ServerSubscribe subscribeTask, bool use_proxy, bool noitify)
         {
             FreeNodeResult = null;
+            this.noitify = noitify;
             try
             {
                 WebClient http = new WebClient();
-                http.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.3319.102 Safari/537.36");
+                http.Headers.Add("User-Agent",
+                    String.IsNullOrEmpty(config.proxyUserAgent) ?
+                    "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.3319.102 Safari/537.36"
+                    : config.proxyUserAgent);
                 http.QueryString["rnd"] = Util.Utils.RandUInt32().ToString();
                 if (use_proxy)
                 {
@@ -42,6 +48,8 @@ namespace Shadowsocks.Controller
                     http.Proxy = null;
                 }
                 //UseProxy = !UseProxy;
+                this.subscribeTask = subscribeTask;
+                string URL = subscribeTask.URL;
                 http.DownloadStringCompleted += http_DownloadStringCompleted;
                 http.DownloadStringAsync(new Uri(URL != null ? URL : UpdateURL));
             }
@@ -81,19 +89,21 @@ namespace Shadowsocks.Controller
 
     public class UpdateSubscribeManager
     {
-        Configuration _config;
-        List<ServerSubscribe> _serverSubscribes;
-        UpdateFreeNode _updater;
-        string _URL;
-        bool _use_proxy;
+        private Configuration _config;
+        private List<ServerSubscribe> _serverSubscribes;
+        private UpdateFreeNode _updater;
+        private string _URL;
+        private bool _use_proxy;
+        public bool _noitify;
 
-        public void CreateTask(Configuration config, UpdateFreeNode updater, int index, bool use_proxy)
+        public void CreateTask(Configuration config, UpdateFreeNode updater, int index, bool use_proxy, bool noitify)
         {
             if (_config == null)
             {
                 _config = config;
                 _updater = updater;
                 _use_proxy = use_proxy;
+                _noitify = noitify;
                 if (index < 0)
                 {
                     _serverSubscribes = new List<ServerSubscribe>();
@@ -121,7 +131,7 @@ namespace Shadowsocks.Controller
             else
             {
                 _URL = _serverSubscribes[0].URL;
-                _updater.CheckUpdate(_config, _URL, _use_proxy);
+                _updater.CheckUpdate(_config, _serverSubscribes[0], _use_proxy, _noitify);
                 _serverSubscribes.RemoveAt(0);
                 return true;
             }
